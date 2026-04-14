@@ -1,5 +1,8 @@
 .env
 state.json
+state_value.json
+logs/
+dashboard.html
 __pycache__/
 *.pyc
 .venv/

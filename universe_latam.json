@@ -1,0 +1,27 @@
+{
+  "version": "2026-04-14",
+  "region": "LATAM",
+  "notes": "ADRs Peru/Mexico en NYSE (no requieren data BMV). Q.MX (Qualitas) es BMV-only: requiere suscripcion MEXI para live trading, pero funciona en backtest via yfinance.",
+  "symbols": [
+    "BAP",
+    "BVN",
+    "CPAC",
+    "SCCO",
+    "FMX",
+    "AMX",
+    "CX",
+    "KOF",
+    "Q.MX"
+  ],
+  "symbol_exchange": {
+    "BAP": "NYSE",
+    "BVN": "NYSE",
+    "CPAC": "NYSE",
+    "SCCO": "NYSE",
+    "FMX": "NYSE",
+    "AMX": "NYSE",
+    "CX": "NYSE",
+    "KOF": "NYSE",
+    "Q.MX": "BMV"
+  }
+}
