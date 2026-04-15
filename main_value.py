@@ -19,6 +19,36 @@ from news_check import check as news_check
 
 load_dotenv()
 
+MAX_CHUNK = int(os.getenv("ORDER_MAX_CHUNK", "500"))
+
+
+def _place_chunked(ib, contract, action: str, qty: int, max_chunk: int = MAX_CHUNK, timeout_s: int = 15):
+    """Parte la orden en chunks para evitar precautionary limits del preset IB.
+    Devuelve (filled_total, avg_price, last_status)."""
+    filled_total = 0.0
+    notional = 0.0
+    last_status = "Unknown"
+    remaining = int(qty)
+    while remaining > 0:
+        chunk = min(max_chunk, remaining)
+        order = MarketOrder(action, chunk)
+        order.tif = "DAY"
+        trade = ib.placeOrder(contract, order)
+        for _ in range(timeout_s * 2):
+            ib.sleep(0.5)
+            if trade.isDone():
+                break
+        f = float(trade.orderStatus.filled or 0)
+        p = float(trade.orderStatus.avgFillPrice or 0)
+        last_status = trade.orderStatus.status
+        filled_total += f
+        notional += f * p
+        if f < chunk:
+            break
+        remaining -= chunk
+    avg = (notional / filled_total) if filled_total > 0 else 0.0
+    return filled_total, avg, last_status
+
 
 def _env(name, default=""):
     return os.getenv(name, default).strip()
@@ -215,13 +245,10 @@ class ValueBot:
             self.jlog("exit_thesis", symbol=sym, reason=reason, qty=qty)
             contract = _build_contract(sym)
             self.ib.qualifyContracts(contract)
-            trade = self.ib.placeOrder(contract, MarketOrder("SELL", qty))
-            for _ in range(20):
-                self.ib.sleep(0.5)
-                if trade.isDone(): break
-            fill = float(trade.orderStatus.avgFillPrice or 0)
+            filled_qty, fill, status = _place_chunked(self.ib, contract, "SELL", qty)
+            self.jlog("exit_chunked", symbol=sym, requested=qty, filled=filled_qty, fill=fill, status=status)
             self.state.setdefault("trade_history", []).append({
-                "symbol": sym, "exit_price": fill, "quantity": qty,
+                "symbol": sym, "exit_price": fill, "quantity": filled_qty,
                 "reason": reason, "closed_at": _now().isoformat()
             })
             self._save()
@@ -260,16 +287,7 @@ class ValueBot:
             self.logger.warning(f"ENTRADA value {sym} | qty={qty} price={price:.2f}")
             self.jlog("entry_value", symbol=sym, qty=qty, price=price,
                       score=verdicts[sym].score, metrics=verdicts[sym].metrics)
-            order = MarketOrder("BUY", qty)
-            order.tif = "GTC"
-            order.outsideRth = True
-            trade = self.ib.placeOrder(contract, order)
-            for _ in range(40):
-                self.ib.sleep(0.5)
-                if trade.isDone(): break
-            status = trade.orderStatus.status
-            filled_qty = float(trade.orderStatus.filled or 0)
-            fill = float(trade.orderStatus.avgFillPrice or 0)
+            filled_qty, fill, status = _place_chunked(self.ib, contract, "BUY", qty)
             if filled_qty < 1 or fill <= 0:
                 self.logger.warning(f"Orden {sym} no ejecutada | status={status} filled={filled_qty}")
                 self.jlog("entry_not_filled", symbol=sym, status=status, filled=filled_qty)

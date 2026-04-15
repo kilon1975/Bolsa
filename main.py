@@ -236,23 +236,43 @@ class IBSwingBot:
         ]
         return all(checks)
 
-    def place_market_buy(self, contract, quantity: int):
-        order = MarketOrder("BUY", quantity)
-        trade = self.ib.placeOrder(contract, order)
-        for _ in range(20):
-            self.ib.sleep(0.5)
-            if trade.isDone():
+    def _place_chunked(self, contract, action: str, quantity: int):
+        max_chunk = int(os.getenv("ORDER_MAX_CHUNK", "500"))
+        filled_total = 0.0
+        notional = 0.0
+        last_status = "Unknown"
+        remaining = int(quantity)
+        last_trade = None
+        while remaining > 0:
+            chunk = min(max_chunk, remaining)
+            order = MarketOrder(action, chunk)
+            order.tif = "DAY"
+            trade = self.ib.placeOrder(contract, order)
+            last_trade = trade
+            for _ in range(20):
+                self.ib.sleep(0.5)
+                if trade.isDone():
+                    break
+            f = float(trade.orderStatus.filled or 0)
+            p = float(trade.orderStatus.avgFillPrice or 0)
+            last_status = trade.orderStatus.status
+            filled_total += f
+            notional += f * p
+            if f < chunk:
                 break
-        return trade
+            remaining -= chunk
+        avg = (notional / filled_total) if filled_total > 0 else 0.0
+        if last_trade is not None:
+            last_trade.orderStatus.filled = filled_total
+            last_trade.orderStatus.avgFillPrice = avg
+            last_trade.orderStatus.status = last_status
+        return last_trade
+
+    def place_market_buy(self, contract, quantity: int):
+        return self._place_chunked(contract, "BUY", quantity)
 
     def place_market_sell(self, contract, quantity: int):
-        order = MarketOrder("SELL", quantity)
-        trade = self.ib.placeOrder(contract, order)
-        for _ in range(20):
-            self.ib.sleep(0.5)
-            if trade.isDone():
-                break
-        return trade
+        return self._place_chunked(contract, "SELL", quantity)
 
     def sync_state_with_positions(self):
         pos_map = self.get_position_map()
