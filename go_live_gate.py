@@ -35,14 +35,28 @@ def _parse_dt(s):
         return None
 
 
-def evaluate(state_path: str, thresholds: GateThresholds = GateThresholds()) -> GateResult:
-    if not os.path.exists(state_path):
-        return GateResult(False, [("state_exists", False, f"{state_path} no existe")], {})
+def evaluate(state_path, thresholds: GateThresholds = GateThresholds()) -> GateResult:
+    """Evalúa el gate combinando uno o más state files.
 
-    with open(state_path) as f:
-        state = json.load(f)
+    Acepta string (compat) o lista de paths. Cuando son varios, concatena
+    trade_history, usa max(equity_peak) y max(last_net_liq) como agregados."""
+    paths = [state_path] if isinstance(state_path, str) else list(state_path)
+    missing = [p for p in paths if not os.path.exists(p)]
+    if missing:
+        return GateResult(False, [("state_exists", False, f"no existen: {missing}")], {})
 
-    history = state.get("trade_history", [])
+    history: list = []
+    peak = 0.0
+    last_equity_max = 0.0
+    for p in paths:
+        with open(p) as f:
+            state = json.load(f)
+        history.extend(state.get("trade_history", []))
+        peak = max(peak, float(state.get("equity_peak", 0.0) or 0.0))
+        le = state.get("last_net_liq")
+        if le:
+            last_equity_max = max(last_equity_max, float(le))
+
     closed = [t for t in history if t.get("pnl") is not None or t.get("exit_price") is not None]
     n = len(closed)
 
@@ -55,13 +69,11 @@ def evaluate(state_path: str, thresholds: GateThresholds = GateThresholds()) -> 
     avg_loss = (sum(losses) / len(losses)) if losses else 0.0
     payoff = (avg_win / avg_loss) if avg_loss else 0.0
 
-    peak = float(state.get("equity_peak", 0.0) or 0.0)
     current_dd = 0.0
     net_liq = None
-    last_equity = state.get("last_net_liq")
-    if last_equity and peak > 0:
-        current_dd = max(0.0, (peak - float(last_equity)) / peak)
-        net_liq = float(last_equity)
+    if last_equity_max and peak > 0:
+        current_dd = max(0.0, (peak - last_equity_max) / peak)
+        net_liq = last_equity_max
 
     first_trade_dt = None
     for t in history:
@@ -125,9 +137,12 @@ def enforce(mode: str, state_path: str, sleeve: str) -> bool:
 
 if __name__ == "__main__":
     import sys
-    path = sys.argv[1] if len(sys.argv) > 1 else "state.json"
-    r = evaluate(path)
-    print(f"State: {path}")
+    if len(sys.argv) > 1:
+        paths = sys.argv[1:]
+    else:
+        paths = ["state.json", "state_value.json"]
+    r = evaluate(paths)
+    print(f"State: {paths}")
     print(f"Metrics: {json.dumps(r.metrics, indent=2, default=str)}")
     print(f"{'Check':<20} {'OK':<4} Detalle")
     for name, ok, detail in r.checks:

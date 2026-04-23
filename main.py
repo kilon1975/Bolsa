@@ -391,6 +391,14 @@ class IBSwingBot:
         pos_map = self.get_position_map()
         tracked = self.state.get("positions", {})
 
+        shiller_max = float(os.getenv("SHILLER_CAPE_MAX", "40"))
+        from shiller_filter import allow_new_entry
+        shiller_ok, cape, zone = allow_new_entry(shiller_max)
+        self.jlog("shiller_check", cape=cape, zone=zone, threshold=shiller_max, allow=shiller_ok)
+        if not shiller_ok:
+            self.logger.warning(f"Filtro Shiller BLOQUEA entradas | CAPE={cape:.2f} (zona={zone}) > {shiller_max}")
+            return
+
         long_positions_count = sum(1 for p in pos_map.values() if float(p.position) > 0)
 
         for symbol in self.cfg.symbols:

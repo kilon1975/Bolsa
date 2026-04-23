@@ -1,27 +1,29 @@
 {
-  "version": "2026-04-14",
+  "version": "2026-04-20-buffett",
   "region": "LATAM",
-  "notes": "ADRs Peru/Mexico en NYSE (no requieren data BMV). Q.MX (Qualitas) es BMV-only: requiere suscripcion MEXI para live trading, pero funciona en backtest via yfinance.",
+  "notes": "Universo re-enfocado en empresas anti-IA / consumo esencial alineado con filosofía Buffett. Removidos BAP (banco, vulnerable) y AMX (telecom, vulnerable). Agregados SBS (agua Brasil), VALE (minería Brasil), EC (petróleo Colombia).",
   "symbols": [
-    "BAP",
     "BVN",
     "CPAC",
     "SCCO",
     "FMX",
-    "AMX",
     "CX",
     "KOF",
-    "Q.MX"
+    "Q.MX",
+    "SBS",
+    "VALE",
+    "EC"
   ],
   "symbol_exchange": {
-    "BAP": "NYSE",
     "BVN": "NYSE",
     "CPAC": "NYSE",
     "SCCO": "NYSE",
     "FMX": "NYSE",
-    "AMX": "NYSE",
     "CX": "NYSE",
     "KOF": "NYSE",
-    "Q.MX": "BMV"
+    "Q.MX": "BMV",
+    "SBS": "NYSE",
+    "VALE": "NYSE",
+    "EC": "NYSE"
   }
 }

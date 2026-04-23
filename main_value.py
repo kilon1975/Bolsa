@@ -247,9 +247,17 @@ class ValueBot:
             self.ib.qualifyContracts(contract)
             filled_qty, fill, status = _place_chunked(self.ib, contract, "SELL", qty)
             self.jlog("exit_chunked", symbol=sym, requested=qty, filled=filled_qty, fill=fill, status=status)
+            pos_info = self.state.get("positions", {}).get(sym, {})
+            entry_price = float(pos_info.get("entry_price", 0) or 0)
+            pnl = (float(fill) - entry_price) * filled_qty if entry_price and fill else None
             self.state.setdefault("trade_history", []).append({
-                "symbol": sym, "exit_price": fill, "quantity": filled_qty,
-                "reason": reason, "closed_at": _now().isoformat()
+                "symbol": sym,
+                "entry_price": entry_price or None,
+                "exit_price": fill,
+                "quantity": filled_qty,
+                "pnl": pnl,
+                "reason": reason,
+                "closed_at": _now().isoformat()
             })
             self._save()
 

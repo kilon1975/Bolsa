@@ -82,6 +82,9 @@ def render_sleeve(name, state_path, log_pattern):
             red_flags.append(f"{r['symbol']}: {', '.join(r['news_red'])}")
     red_html = "<ul>" + "".join(f"<li>🚩 {r}</li>" for r in red_flags) + "</ul>" if red_flags else "<p><em>Sin red flags</em></p>"
 
+    # Solo mostrar análisis Buffett al sleeve LATAM (donde aplica value investing)
+    buffett_html = _buffett_section(positions) if "LATAM" in name else ""
+
     m = gate.metrics
     return f"""
     <section>
@@ -107,12 +110,83 @@ def render_sleeve(name, state_path, log_pattern):
 
       <h3>Red flags de noticias</h3>
       {red_html}
+      {buffett_html}
     </section>
     """
 
 
+def _buffett_section(positions: dict) -> str:
+    if not positions:
+        return ""
+    try:
+        from value_filter import evaluate as _value_eval
+    except Exception as e:
+        return f"<h3>¿Qué diría Buffett?</h3><p><em>No se pudo cargar el filtro: {e}</em></p>"
+
+    bucket_emoji = {"resistente": "🛡️", "neutro": "⚪", "vulnerable": "⚠️"}
+    rows = [_row(["Símbolo", "Pasa", "Score", "Sector", "IA", "Razones"], header=True)]
+    for sym in positions.keys():
+        try:
+            v = _value_eval(sym)
+            flag = "✅" if v.passes else "❌"
+            ia = f"{bucket_emoji.get(v.ai_bucket, '⚪')} {v.ai_bucket}"
+            rows.append(_row([sym, flag, v.score, v.sector or "-", ia, ", ".join(v.reasons[:6])]))
+        except Exception as e:
+            rows.append(_row([sym, "?", "-", "-", "-", f"error: {e}"]))
+    table = "<table>" + "\n".join(rows) + "</table>"
+    return f"<h3>¿Qué diría Buffett? <small>(análisis actual de posiciones abiertas)</small></h3>{table}"
+
+
+def _cape_banner():
+    try:
+        from shiller_filter import get_current_cape, _zone
+        cape, src, ts = get_current_cape()
+    except Exception as e:
+        return f'<section style="background:#3a2a0e;border-color:#8b6914;"><strong>⚠️ CAPE no disponible:</strong> {e}</section>'
+    zone = _zone(cape)
+    zone_labels = {"barato": ("🟢", "#0f2a16", "#238636"),
+                   "normal": ("🟢", "#0f2a16", "#238636"),
+                   "caro": ("🟡", "#3a2a0e", "#8b6914"),
+                   "muy_caro": ("🟠", "#3a1e0e", "#8b4d1f"),
+                   "burbuja": ("🔴", "#3a0e0e", "#8b1f1f")}
+    emoji, bg, border = zone_labels.get(zone, ("⚪", "#161b22", "#30363d"))
+    threshold = os.getenv("SHILLER_CAPE_MAX", "40")
+    status = "bloquea entradas nuevas" if cape > float(threshold) else "permite entradas"
+    return (f'<section style="background:{bg};border-color:{border};">'
+            f'<strong>{emoji} CAPE Shiller S&P 500: {cape:.2f}</strong> '
+            f'— zona {zone.replace("_"," ")}. Umbral {threshold} → {status}. '
+            f'<small>fuente: {src}, {ts[:10]}</small>'
+            f'</section>')
+
+
+def _last_run_banner():
+    status = _load("logs/last_run.json")
+    if not status:
+        return '<section style="background:#3a2a0e;border-color:#8b6914;"><strong>⚠️ Última corrida:</strong> sin registro (el bot todavía no ha corrido con el sistema de monitoreo nuevo).</section>'
+    ran_at = status.get("ran_at", "?")
+    swing_ok = status.get("swing_ok", False)
+    value_ok = status.get("value_ok", False)
+    all_ok = swing_ok and value_ok
+    try:
+        ran_dt = datetime.fromisoformat(ran_at.replace("Z", "+00:00"))
+        age_h = (datetime.now(timezone.utc) - ran_dt).total_seconds() / 3600
+        age_str = f"hace {age_h:.0f}h" if age_h >= 1 else f"hace {age_h*60:.0f} min"
+    except Exception:
+        age_str = ran_at
+    if all_ok:
+        return f'<section style="background:#0f2a16;border-color:#238636;"><strong>✅ Última corrida OK</strong> — {age_str} ({ran_at[:19]} UTC). Ambos bots conectaron al Gateway.</section>'
+    parts = []
+    if not swing_ok:
+        parts.append(f"Swing-US (exit={status.get('swing_exit')})")
+    if not value_ok:
+        parts.append(f"Value-LATAM (exit={status.get('value_exit')})")
+    return f'<section style="background:#3a0e0e;border-color:#8b1f1f;"><strong>❌ Última corrida FALLÓ</strong> — {age_str} ({ran_at[:19]} UTC). Falló: {", ".join(parts)}. Revisa si el IB Gateway está abierto.</section>'
+
+
 def render():
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    banner = _last_run_banner()
+    cape_banner = _cape_banner()
     swing = render_sleeve("🇺🇸 Swing-US", "state.json", "logs/run-*.jsonl")
     value = render_sleeve("🌎 Value-LATAM", "state_value.json", "logs/value-*.jsonl")
 
@@ -139,6 +213,8 @@ def render():
 </style></head><body>
 <h1>📊 Bolsa Bot Dashboard</h1>
 <p style="color:#8b949e">Generado: {ts}</p>
+{banner}
+{cape_banner}
 {swing}
 {value}
 <footer>ib_swing_bot + value-LATAM · paper trading</footer>
