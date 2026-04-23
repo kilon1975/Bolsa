@@ -247,18 +247,26 @@ class ValueBot:
             self.ib.qualifyContracts(contract)
             filled_qty, fill, status = _place_chunked(self.ib, contract, "SELL", qty)
             self.jlog("exit_chunked", symbol=sym, requested=qty, filled=filled_qty, fill=fill, status=status)
+            if filled_qty < 1 or fill <= 0 or status != "Filled":
+                self.logger.warning(f"SALIDA {sym} NO LLENADA | status={status} filled={filled_qty}/{qty}")
+                self.jlog("exit_not_filled", symbol=sym, reason=reason, status=status, requested=qty, filled=filled_qty)
+                continue
             pos_info = self.state.get("positions", {}).get(sym, {})
             entry_price = float(pos_info.get("entry_price", 0) or 0)
-            pnl = (float(fill) - entry_price) * filled_qty if entry_price and fill else None
+            pnl = (float(fill) - entry_price) * filled_qty if entry_price else None
             self.state.setdefault("trade_history", []).append({
                 "symbol": sym,
                 "entry_price": entry_price or None,
                 "exit_price": fill,
                 "quantity": filled_qty,
+                "requested_qty": qty,
                 "pnl": pnl,
                 "reason": reason,
+                "status": status,
                 "closed_at": _now().isoformat()
             })
+            if filled_qty >= qty:
+                self.state.get("positions", {}).pop(sym, None)
             self._save()
 
         # 2) ENTRADAS equal-weight para los que pasan
@@ -296,18 +304,19 @@ class ValueBot:
             self.jlog("entry_value", symbol=sym, qty=qty, price=price,
                       score=verdicts[sym].score, metrics=verdicts[sym].metrics)
             filled_qty, fill, status = _place_chunked(self.ib, contract, "BUY", qty)
-            if filled_qty < 1 or fill <= 0:
-                self.logger.warning(f"Orden {sym} no ejecutada | status={status} filled={filled_qty}")
-                self.jlog("entry_not_filled", symbol=sym, status=status, filled=filled_qty)
+            if filled_qty < 1 or fill <= 0 or status != "Filled":
+                self.logger.warning(f"Orden {sym} no ejecutada | status={status} filled={filled_qty}/{qty}")
+                self.jlog("entry_not_filled", symbol=sym, status=status, requested=qty, filled=filled_qty)
                 continue
             self.state.setdefault("positions", {})[sym] = {
                 "entry_price": round(fill, 4),
                 "quantity": int(filled_qty),
                 "opened_at": _now().isoformat(),
                 "score_at_entry": verdicts[sym].score,
+                "status": status,
             }
             self._save()
-            self.jlog("entry_filled", symbol=sym, fill=fill, qty=filled_qty)
+            self.jlog("entry_filled", symbol=sym, fill=fill, qty=filled_qty, requested=qty, status=status)
             slots_used += 1
 
         self.state["last_run"] = _now().isoformat()

@@ -368,21 +368,32 @@ class IBSwingBot:
             self.jlog("exit_signal", symbol=symbol, reason=reason, close=close,
                       trail_stop=trail_stop, max_price=max_price)
             trade = self.place_market_sell(contract, qty)
+            status = trade.orderStatus.status
+            filled_qty = int(float(trade.orderStatus.filled or 0))
+            if filled_qty <= 0:
+                self.logger.warning(f"SALIDA {symbol} NO LLENADA | status={status} qty_req={qty}")
+                self.jlog("exit_not_filled", symbol=symbol, reason=reason, status=status, requested=qty, filled=0)
+                continue
             fill = float(trade.orderStatus.avgFillPrice) if trade.orderStatus.avgFillPrice else close
             entry = float(meta.get("entry_price", avg_cost))
-            pnl = (fill - entry) * qty
+            pnl = (fill - entry) * filled_qty
             self.state.setdefault("trade_history", []).append({
                 "symbol": symbol,
                 "entry_price": entry,
                 "exit_price": fill,
-                "quantity": qty,
+                "quantity": filled_qty,
+                "requested_qty": qty,
                 "pnl": round(pnl, 2),
                 "reason": reason,
+                "status": status,
                 "closed_at": _today_utc().isoformat(),
             })
-            self.logger.info(f"Orden de salida enviada en {symbol} | status={trade.orderStatus.status} pnl={pnl:.2f}")
-            self.jlog("exit_filled", symbol=symbol, fill=fill, pnl=pnl, status=trade.orderStatus.status)
-            tracked.pop(symbol, None)
+            self.logger.info(f"Salida {symbol} | filled={filled_qty}/{qty} fill={fill:.2f} pnl={pnl:.2f} status={status}")
+            self.jlog("exit_filled", symbol=symbol, fill=fill, pnl=pnl, filled=filled_qty, requested=qty, status=status)
+            if filled_qty >= qty:
+                tracked.pop(symbol, None)
+            else:
+                tracked[symbol]["quantity"] = int(tracked[symbol].get("quantity", qty)) - filled_qty
             self._save_state()
 
     def evaluate_entries(self):
@@ -451,6 +462,12 @@ class IBSwingBot:
             self.jlog("entry_signal", symbol=symbol, qty=qty, price=price,
                       stop_price=stop_price, target_price=target_price, **dbg)
             trade = self.place_market_buy(contract, qty)
+            status = trade.orderStatus.status
+            filled_qty = int(float(trade.orderStatus.filled or 0))
+            if filled_qty <= 0:
+                self.logger.warning(f"ENTRADA {symbol} NO LLENADA | status={status} qty_req={qty}")
+                self.jlog("entry_not_filled", symbol=symbol, status=status, requested=qty, filled=0)
+                continue
 
             fill_price = float(trade.orderStatus.avgFillPrice) if trade.orderStatus.avgFillPrice else price
             tracked[symbol] = {
@@ -458,12 +475,12 @@ class IBSwingBot:
                 "max_price": round(fill_price, 4),
                 "stop_price": round(stop_price, 4),
                 "target_price": round(target_price, 4),
-                "quantity": int(qty),
+                "quantity": int(filled_qty),
                 "updated_at": _today_utc().isoformat(),
             }
             self.state["positions"] = tracked
             self._save_state()
-            self.jlog("entry_filled", symbol=symbol, fill=fill_price, qty=qty)
+            self.jlog("entry_filled", symbol=symbol, fill=fill_price, qty=filled_qty, requested=qty, status=status)
             long_positions_count += 1
 
     def run_once(self):

@@ -117,27 +117,35 @@ def main():
                     ib.sleep(1)
                     if trade.orderStatus.status in ("Filled", "ApiCancelled", "Cancelled"):
                         break
-                fill = trade.orderStatus.avgFillPrice or 0
+                filled_qty = int(float(trade.orderStatus.filled or 0))
+                fill = float(trade.orderStatus.avgFillPrice or 0)
                 status = trade.orderStatus.status
-                log(f"→ AMX status={status} fill=${fill:.2f}")
+                log(f"→ AMX status={status} filled={filled_qty}/{amx_qty} fill=${fill:.2f}")
 
-                # Actualizar state_value.json
+                if filled_qty <= 0 or fill <= 0 or status != "Filled":
+                    log(f"❌ AMX NO llenada (status={status}, filled={filled_qty}) — state NO modificado")
+                    log(f"   Probable causa: fuera de RTH o falta liquidez. Reintenta en horas de mercado.")
+                    return
+
                 state = load_state()
                 entry = state.get("positions", {}).get(AMX_SYMBOL, {})
                 entry_px = float(entry.get("entry_price", 0) or 0)
-                pnl = (fill - entry_px) * amx_qty if entry_px and fill else None
+                pnl = (fill - entry_px) * filled_qty if entry_px else None
                 state.setdefault("trade_history", []).append({
                     "symbol": AMX_SYMBOL,
                     "entry_price": entry_px or None,
                     "exit_price": fill,
-                    "quantity": amx_qty,
+                    "quantity": filled_qty,
+                    "requested_qty": amx_qty,
                     "pnl": round(pnl, 2) if pnl is not None else None,
                     "reason": "manual_swap_to_qmx",
+                    "status": status,
                     "closed_at": datetime.now(timezone.utc).isoformat(),
                 })
-                state.get("positions", {}).pop(AMX_SYMBOL, None)
+                if filled_qty >= amx_qty:
+                    state.get("positions", {}).pop(AMX_SYMBOL, None)
                 save_state(state)
-                log("→ state_value.json actualizado (AMX removida)")
+                log(f"→ state_value.json actualizado (AMX filled={filled_qty})")
 
         # 4) Compra Q.MX
         if QMX_SYMBOL in positions and float(positions[QMX_SYMBOL].position) > 0:
@@ -161,20 +169,26 @@ def main():
                     ib.sleep(1)
                     if trade.orderStatus.status in ("Filled", "ApiCancelled", "Cancelled"):
                         break
-                fill = trade.orderStatus.avgFillPrice or 0
+                filled_qty = int(float(trade.orderStatus.filled or 0))
+                fill = float(trade.orderStatus.avgFillPrice or 0)
                 status = trade.orderStatus.status
-                log(f"→ Q.MX status={status} fill={fill:.2f} MXN")
+                log(f"→ Q.MX status={status} filled={filled_qty}/{qmx_qty} fill={fill:.2f} MXN")
 
-                if fill > 0:
-                    state = load_state()
-                    state.setdefault("positions", {})[QMX_SYMBOL] = {
-                        "quantity": qmx_qty,
-                        "entry_price": fill,
-                        "opened_at": datetime.now(timezone.utc).isoformat(),
-                        "source": "manual_swap_from_amx",
-                    }
-                    save_state(state)
-                    log("→ state_value.json actualizado (Q.MX agregada)")
+                if filled_qty <= 0 or fill <= 0 or status != "Filled":
+                    log(f"❌ Q.MX NO llenada (status={status}, filled={filled_qty}) — state NO modificado")
+                    log(f"   Probable causa: MEXI fuera de RTH o falta suscripcion. Reintenta en horas.")
+                    return
+
+                state = load_state()
+                state.setdefault("positions", {})[QMX_SYMBOL] = {
+                    "quantity": filled_qty,
+                    "entry_price": fill,
+                    "opened_at": datetime.now(timezone.utc).isoformat(),
+                    "source": "manual_swap_from_amx",
+                    "status": status,
+                }
+                save_state(state)
+                log(f"→ state_value.json actualizado (Q.MX filled={filled_qty})")
 
         log("✓ terminado")
     finally:
