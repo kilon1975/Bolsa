@@ -98,12 +98,16 @@ def main():
         amx_pos = positions.get(AMX_SYMBOL)
         if not amx_pos or float(amx_pos.position) == 0:
             log(f"ℹ️ no hay posicion abierta de {AMX_SYMBOL}, salto cierre")
+            amx_total_qty = 0
             amx_qty = 0
         else:
-            amx_qty = int(abs(float(amx_pos.position)))
-            log(f"Posicion AMX actual: {amx_qty} acciones @ avg ${amx_pos.avgCost:.2f}")
+            amx_total_qty = int(abs(float(amx_pos.position)))
+            # Vender solo $TARGET_USD de AMX (venta parcial), no todo
+            amx_qty = min(int(TARGET_USD / amx_px_usd), amx_total_qty)
+            log(f"Posicion AMX actual: {amx_total_qty} acciones @ avg ${amx_pos.avgCost:.2f}")
+            log(f"Vendera {amx_qty}/{amx_total_qty} AMX (~${amx_qty * amx_px_usd:,.0f}) — el resto ({amx_total_qty - amx_qty} acciones) queda intacto")
 
-        # 3) Cierre de AMX
+        # 3) Cierre parcial de AMX
         if amx_qty > 0:
             if DRY_RUN:
                 log(f"[DRY] Venderia {amx_qty} AMX a mercado (~${amx_qty * amx_px_usd:,.2f})")
